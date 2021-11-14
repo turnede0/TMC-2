@@ -1,0 +1,7 @@
+build
+build/**
+.vscode/**
+main/html
+main/html/**
+main/latex
+main/latexa/**

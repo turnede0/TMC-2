@@ -24,6 +24,7 @@ typedef struct
     uint8_t elem_num;
     uint8_t onoff;
     esp_ble_mesh_model_t *model;
+    uint16_t model_id;
     esp_ble_mesh_msg_ctx_t *ctx;
 } esp_ble_mesh_node_info_t;
 
@@ -35,7 +36,7 @@ void Unprovisioned_advertise_pkt_receive(uint8_t dev_uuid[16], uint8_t addr[BD_A
 
 int Connect_unprovisioned_device(int index);
 
-void Provision_complete();
+void Provision_complete(const char *name, const char *uuid, uint16_t model_id);
 
 esp_err_t Start_provisioner(void);
 
@@ -45,10 +46,14 @@ const node_detail *Retreive_dlist();
 
 void Websocket_msg_handle(uint8_t *payload);
 
-void Send_device_to_ui(uint8_t *data);
+void send_unprov_device_mac_to_ui(uint8_t *data);
+
+void send_sensor_data_to_ui(uint8_t temp, uint8_t humid);
 
 void Get_connected_nodes();
 
 void Onoff_model(int index);
+
+void sensor_model(int index);
 
 #endif // MESH_HANDLER_H

@@ -1,15 +1,29 @@
-/* Simple HTTP + SSL + WS Server Example
-   This example code is in the Public Domain (or CC0 licensed, at your option.)
-   Unless required by applicable law or agreed to in writing, this
-   software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
-   CONDITIONS OF ANY KIND, either express or implied.
-*/
+/**
+ * @file ws.c
+ * @author your name (you@domain.com)
+ * @brief
+ * @version 0.1
+ * @date 2021-11-12
+ *
+ * @copyright
+ * Simple HTTP + SSL + WS Server Example
+ * This example code is in the Public Domain (or CC0 licensed, at your option.)
+ * Unless required by applicable law or agreed to in writing, this
+ * software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+ * CONDITIONS OF ANY KIND, either express or implied.
+ *
+ */
+
 #include "ws.h"
 
 #include "esp_ble_mesh_defs.h"
 
-//TODO: merge shit back to handler
+// TODO: merge shit back to handler
 #include "mesh_handler.h"
+
+#include "esp_ble_mesh_defs.h"
+#include "esp_ble_mesh_common_api.h"
+#include "esp_ble_mesh_sensor_model_api.h"
 
 #define WEBSOCKET_MSG_SIZE 256
 
@@ -43,7 +57,7 @@ struct async_json_tran
     cJSON *root;
 };
 
-//async func for send binary
+// async func for send binary
 static void queue_send_JSON(void *arg)
 {
     struct async_json_tran *resp_arg = arg;
@@ -51,7 +65,7 @@ static void queue_send_JSON(void *arg)
     httpd_ws_frame_t ws_pkt;
     memset(&ws_pkt, 0, sizeof(httpd_ws_frame_t));
 
-    //serialize json
+    // serialize json
     char *buf = cJSON_Print(resp_arg->root);
 
     ws_pkt.payload = (uint8_t *)buf;
@@ -65,13 +79,14 @@ static void queue_send_JSON(void *arg)
 }
 
 /**
- * Send JSON to ui
+ * @brief Send JSON to ui
  * Note: data should not be freed after passed to this function
- * it will handle free after transmitted
+ * it will handle free after transmitted*
+ * @param data cJSON object
  */
 void WS_send_JSON(const cJSON *data)
 {
-    if (httpd_server == NULL || soc_fd == 0 || !data) //if server not init or no data
+    if (httpd_server == NULL || soc_fd == 0 || !data) // if server not init or no data
         return;
 
     struct async_json_tran *d = malloc(sizeof(struct async_json_tran));
@@ -81,8 +96,10 @@ void WS_send_JSON(const cJSON *data)
     httpd_queue_work(httpd_server, queue_send_JSON, d);
 }
 
-/*
- * async send function, which we put into the httpd work queue
+/**
+ * @brief  async send function, which we put into the httpd work queue
+ *
+ * @param arg
  */
 static void ws_async_send(void *arg)
 {
@@ -101,6 +118,13 @@ static void ws_async_send(void *arg)
     free(resp_arg);
 }
 
+/**
+ * @brief  trigger a async call to send msg from ws
+ *
+ * @param handle
+ * @param req
+ * @return esp_err_t
+ */
 static esp_err_t trigger_async_send(httpd_handle_t handle, httpd_req_t *req)
 {
     struct async_resp_arg *resp_arg = malloc(sizeof(struct async_resp_arg));
@@ -109,33 +133,37 @@ static esp_err_t trigger_async_send(httpd_handle_t handle, httpd_req_t *req)
     return httpd_queue_work(handle, ws_async_send, resp_arg);
 }
 
-/*
+/**
+ * @brief Handle WebSocket Message
  * This handler echos back the received ws data
  * and triggers an async send if certain message received
+ * @param req  request receive from websocket
+ * @return esp_err_t  error code if error
  */
 static esp_err_t ws_handler(httpd_req_t *req)
 {
-
-    //add to receiver fd
-    if (soc_fd == 0) //TODO: disconnect start provision
+    // TODO: put back start provision as function
+    // TODO: Add ping pong to detect client disconnect
+    // add to receiver fd
+    if (soc_fd == 0) // TODO: disconnect start provision
     {
-        Start_provisioner();
     }
     soc_fd = httpd_req_to_sockfd(req);
     httpd_server = req->handle;
 
-    //cJSON_Parse(monitor);
+    // cJSON_Parse(monitor);
     uint8_t buf[WEBSOCKET_MSG_SIZE] = {0};
     httpd_ws_frame_t ws_pkt;
     memset(&ws_pkt, 0, sizeof(httpd_ws_frame_t));
 
-    //assign buffer
+    // assign buffer
     ws_pkt.payload = (uint8_t *)&buf;
 
+    // FIXME: wait ESP-IDF 5.0 update for dynamic allocation of mem for msg size
     /**
-     * seem this function hv bug originally it should be able to get msg len when len = 0 and return to pkt.len
+     * NOTE: seem this function hv bug originally it should be able to get msg len when len = 0 and return to pkt.len
      * currently it only support write to preallocated array
-     * second calling of the function will return WS Message too long =w= 
+     * second calling of the function will return WS Message too long =w=
      * hopefully this should got fix in 5.0
      */
 
@@ -145,7 +173,7 @@ static esp_err_t ws_handler(httpd_req_t *req)
     {
     case HTTPD_WS_TYPE_TEXT:
         ESP_LOGI(TAG, "Got packet with message: %s", ws_pkt.payload);
-        Websocket_msg_handle(ws_pkt.payload); //TODO: async here later ?
+        Websocket_msg_handle(ws_pkt.payload); // TODO: async here later ?
         break;
     case HTTPD_WS_TYPE_PONG:
         ESP_LOGD(TAG, "Received PONG message");
@@ -186,7 +214,7 @@ static esp_err_t ws_handler(httpd_req_t *req)
         return ret;
     }
 
-    //send data
+    // send data
     ret = httpd_ws_send_frame(req, &ws_pkt);
     if (ret != ESP_OK)
     {

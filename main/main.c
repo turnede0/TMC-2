@@ -1,11 +1,3 @@
-/* main.c - Application main entry point */
-
-/*
- * Copyright (c) 2018 Espressif Systems (Shanghai) PTE LTD
- *
- * SPDX-License-Identifier: Apache-2.0
- */
-
 #include <stdio.h>
 #include <string.h>
 
@@ -22,6 +14,7 @@ void app_main(void)
 {
     esp_err_t err;
 
+    ESP_LOGE(TAG, "esp_user_model_sensor_field_t: %d", sizeof(esp_user_model_sensor_field_t));
     ESP_LOGI(TAG, "Initializing...");
 
     err = nvs_flash_init();

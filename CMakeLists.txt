@@ -6,3 +6,5 @@ set(EXTRA_COMPONENT_DIRS $ENV{IDF_PATH}/examples/bluetooth/esp_ble_mesh/common_c
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(ble_mesh_provisioner)
+
+#set(CMAKE_BUILD_TYPE Debug)

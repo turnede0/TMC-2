@@ -13,7 +13,20 @@
 
 #include "ble_mesh_example_init.h"
 #include "mesh_handler.h"
+//TODO: move back ?
+#include "ws.h"
 
+#include "esp_ble_mesh_defs.h"
+#include "esp_ble_mesh_common_api.h"
+#include "esp_ble_mesh_sensor_model_api.h"
+
+typedef struct
+{
+    u_int16_t pid; // Property ID
+    uint8_t value; // value
+} esp_user_model_sensor_field_t;
+
+extern esp_ble_mesh_client_t sensor_client;
 extern esp_ble_mesh_client_t onoff_client;
 
 esp_err_t ble_mesh_init(void);
