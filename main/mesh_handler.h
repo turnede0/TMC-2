@@ -48,12 +48,14 @@ void Websocket_msg_handle(uint8_t *payload);
 
 void send_unprov_device_mac_to_ui(uint8_t *data);
 
-void send_sensor_data_to_ui(uint8_t temp, uint8_t humid);
+void send_sensor_data_to_ui(const uint8_t *name, const uint8_t temp, const uint8_t humid);
 
 void Get_connected_nodes();
 
-void Onoff_model(int index);
+void Onoff_model(char *uuid, bool status);
 
 void sensor_model(int index);
+
+void get_status();
 
 #endif // MESH_HANDLER_H

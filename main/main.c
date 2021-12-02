@@ -14,7 +14,6 @@ void app_main(void)
 {
     esp_err_t err;
 
-    ESP_LOGE(TAG, "esp_user_model_sensor_field_t: %d", sizeof(esp_user_model_sensor_field_t));
     ESP_LOGI(TAG, "Initializing...");
 
     err = nvs_flash_init();

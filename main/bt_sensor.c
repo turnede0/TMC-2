@@ -31,7 +31,8 @@ void example_ble_mesh_sensor_cli_cb(esp_ble_mesh_sensor_client_cb_event_t event,
         //TODO: add sensor reading handling
         ESP_LOGW(TAG, "temp: %d, humidity: %d", dev1->value, dev2->value);
 
-        send_sensor_data_to_ui(dev1->value, dev2->value);
+        esp_ble_mesh_node_t *node = esp_ble_mesh_provisioner_get_node_with_addr(param->params->ctx.addr);
+        send_sensor_data_to_ui(&(node->name), dev1->value, dev2->value);
 
         break;
     }

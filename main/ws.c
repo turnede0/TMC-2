@@ -214,13 +214,6 @@ static esp_err_t ws_handler(httpd_req_t *req)
         return ret;
     }
 
-    // send data
-    ret = httpd_ws_send_frame(req, &ws_pkt);
-    if (ret != ESP_OK)
-    {
-        ESP_LOGE(TAG, "httpd_ws_send_frame failed with %d", ret);
-    }
-
     return ret;
 }
 

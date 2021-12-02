@@ -588,12 +588,11 @@ static void example_ble_mesh_generic_client_cb(esp_ble_mesh_generic_client_cb_ev
             cJSON *data = cJSON_CreateObject();
 
             esp_ble_mesh_generic_client_set_state_t set_state = {0};
-            node->onoff = param->status_cb.onoff_status.present_onoff;
-            ESP_LOGI(TAG, "ESP_BLE_MESH_MODEL_OP_GEN_ONOFF_GET onoff: 0x%02x", node->onoff);
+            ESP_LOGI(TAG, "ESP_BLE_MESH_MODEL_OP_GEN_ONOFF_GET onoff: 0x%02x", param->status_cb.onoff_status.present_onoff);
             /* After Generic OnOff Status for Generic OnOff Get is received, Generic OnOff Set will be sent */
             example_ble_mesh_set_msg_common(&common, node, onoff_client.model, ESP_BLE_MESH_MODEL_OP_GEN_ONOFF_SET);
             set_state.onoff_set.op_en = false;
-            set_state.onoff_set.onoff = !node->onoff;
+            set_state.onoff_set.onoff = node->onoff;
             set_state.onoff_set.tid = 0;
             err = esp_ble_mesh_generic_client_set_state(&common, &set_state);
             if (err)
@@ -605,6 +604,9 @@ static void example_ble_mesh_generic_client_cb(esp_ble_mesh_generic_client_cb_ev
             }
             else
             {
+
+                struct bt_mesh_node *n = bt_mesh_provisioner_get_node_with_addr(param->params->ctx.addr);
+                cJSON_AddStringToObject(data, "uuid", bt_hex(n->dev_uuid, 16));
                 cJSON_AddNumberToObject(data, "error", 0.0);
                 cJSON_AddNumberToObject(data, "result", node->onoff);
                 cJSON_AddItemToObject(root, "data", data);
@@ -620,6 +622,7 @@ static void example_ble_mesh_generic_client_cb(esp_ble_mesh_generic_client_cb_ev
         switch (opcode)
         {
         case ESP_BLE_MESH_MODEL_OP_GEN_ONOFF_SET:
+
             node->onoff = param->status_cb.onoff_status.present_onoff;
             ESP_LOGI(TAG, "ESP_BLE_MESH_MODEL_OP_GEN_ONOFF_SET onoff: 0x%02x", node->onoff);
             break;
@@ -635,32 +638,36 @@ static void example_ble_mesh_generic_client_cb(esp_ble_mesh_generic_client_cb_ev
         {
         case ESP_BLE_MESH_MODEL_OP_GEN_ONOFF_GET:
         {
+            //set information
+            cJSON *root = cJSON_CreateObject();
+            cJSON_AddStringToObject(root, "function", "onoff_update");
+            cJSON *data = cJSON_CreateObject();
+
             esp_ble_mesh_generic_client_set_state_t set_state = {0};
-            node->onoff = param->status_cb.onoff_status.present_onoff;
-            ESP_LOGI(TAG, "ESP_BLE_MESH_MODEL_OP_GEN_ONOFF_GET onoff: 0x%02x", node->onoff);
+            ESP_LOGI(TAG, "ESP_BLE_MESH_MODEL_OP_GEN_ONOFF_GET onoff: 0x%02x", param->status_cb.onoff_status.present_onoff);
             /* After Generic OnOff Status for Generic OnOff Get is received, Generic OnOff Set will be sent */
             example_ble_mesh_set_msg_common(&common, node, onoff_client.model, ESP_BLE_MESH_MODEL_OP_GEN_ONOFF_SET);
             set_state.onoff_set.op_en = false;
-            set_state.onoff_set.onoff = !node->onoff;
+            set_state.onoff_set.onoff = node->onoff;
             set_state.onoff_set.tid = 0;
             err = esp_ble_mesh_generic_client_set_state(&common, &set_state);
             if (err)
             {
+                cJSON_AddNumberToObject(data, "error", 1.0);
                 ESP_LOGE(TAG, "%s: Generic OnOff Set failed", __func__);
+                WS_send_JSON(root);
                 return;
             }
-            break;
-            /*
-            esp_ble_mesh_generic_client_get_state_t get_state = {0};
-            example_ble_mesh_set_msg_common(&common, node, onoff_client.model, ESP_BLE_MESH_MODEL_OP_GEN_ONOFF_GET);
-            err = esp_ble_mesh_generic_client_get_state(&common, &get_state);
-            if (err)
+            else
             {
-                ESP_LOGE(TAG, "%s: Generic OnOff Get failed", __func__);
-                return;
+                struct bt_mesh_node *n = bt_mesh_provisioner_get_node_with_addr(param->params->ctx.addr);
+                cJSON_AddStringToObject(data, "uuid", bt_hex(n->dev_uuid, 16));
+                cJSON_AddNumberToObject(data, "error", 0.0);
+                cJSON_AddNumberToObject(data, "result", node->onoff);
+                cJSON_AddItemToObject(root, "data", data);
+                WS_send_JSON(root);
             }
-            break;
-            */
+            return;
         }
         case ESP_BLE_MESH_MODEL_OP_GEN_ONOFF_SET:
         {
@@ -731,5 +738,6 @@ esp_err_t ble_mesh_init(void)
 
     ESP_LOGI(TAG, "BLE Mesh Provisioner initialized");
 
+    Start_provisioner();
     return err;
 }

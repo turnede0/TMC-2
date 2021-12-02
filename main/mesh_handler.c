@@ -40,6 +40,10 @@ esp_ble_mesh_node_info_t nodes[CONFIG_BLE_MESH_MAX_PROV_NODES] = {
 
 static node_detail *discovered = NULL;
 
+static bool provisioning = false;
+
+static bool provisioned = false;
+
 node_detail *blank_node_detail()
 {
     node_detail *blank = malloc(sizeof(node_detail));
@@ -73,7 +77,7 @@ void Unprovisioned_advertise_pkt_receive(uint8_t dev_uuid[16], uint8_t addr[BD_A
                                          esp_ble_mesh_addr_type_t addr_type, uint16_t oob_info,
                                          uint8_t adv_type, esp_ble_mesh_prov_bearer_t bearer)
 { // TODO: update websocket from the function
-
+    ESP_LOGI(TAG, "Device: %s", bt_hex(dev_uuid, 16));
     if (discovered == NULL)
     {
         discovered = blank_node_detail();
@@ -97,7 +101,7 @@ void Unprovisioned_advertise_pkt_receive(uint8_t dev_uuid[16], uint8_t addr[BD_A
         node_detail *last_ele = NULL;
         while (list_ptr != NULL)
         {
-            if (memcmp(addr, list_ptr->dev.addr, 6) >= 0)
+            if (memcmp(dev_uuid, list_ptr->dev.uuid, 16) >= 0)
             {
                 found = true;
                 break;
@@ -182,7 +186,6 @@ int Connect_unprovisioned_device(int index)
 esp_err_t Start_provisioner(void)
 {
     esp_err_t err = ESP_OK;
-
     err = esp_ble_mesh_provisioner_prov_enable(ESP_BLE_MESH_PROV_ADV | ESP_BLE_MESH_PROV_GATT);
     if (err != ESP_OK)
     {
@@ -190,7 +193,13 @@ esp_err_t Start_provisioner(void)
         return err;
     }
 
-    Ble_mesh_app_key_install();
+    if (!provisioned)
+    {
+        provisioned = true;
+        Ble_mesh_app_key_install();
+    }
+
+    provisioning = true;
 
     return err;
 }
@@ -200,12 +209,19 @@ esp_err_t Stop_provisioner(void)
 {
     esp_err_t err = ESP_OK;
 
-    err = esp_ble_mesh_provisioner_prov_disable(ESP_BLE_MESH_PROV_ADV);
+    /**
+     * TODO: disable can successfully disable provision but will disconnect all device
+     * Maybe just free all storage and dont transmit data to ui till re-enable provisione in ui =w=
+     */
+    //
+    err = esp_ble_mesh_provisioner_prov_disable(ESP_BLE_MESH_PROV_ADV | ESP_BLE_MESH_PROV_GATT);
     if (err != ESP_OK)
     {
         ESP_LOGE(TAG, "Failed to disable mesh provisioner (err %d)", err);
         return err;
     }
+
+    provisioning = false;
 
     return err;
 }
@@ -223,9 +239,14 @@ void Provision_complete(const char *name, const char *uuid, uint16_t model_id)
 {
     ESP_LOGE(TAG, "name: %s, uuid %s, %d", name, uuid, model_id);
     cJSON *root = cJSON_CreateObject();
-    cJSON_AddStringToObject(root, "name", name);
-    cJSON_AddStringToObject(root, "uuid", uuid);
-    cJSON_AddStringToObject(root, "model", retrive_model_str(model_id));
+    cJSON *data = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "function", "device_update");
+
+    cJSON_AddStringToObject(data, "name", name);
+    cJSON_AddStringToObject(data, "uuid", uuid);
+    cJSON_AddStringToObject(data, "model", retrive_model_str(model_id));
+
+    cJSON_AddItemToObject(root, "data", data);
     WS_send_JSON(root);
 }
 
@@ -237,6 +258,7 @@ void Provision_complete(const char *name, const char *uuid, uint16_t model_id)
 #define TEMP 5
 #define PROVISION 6
 #define ONOFF 7
+#define INITED 8
 
 typedef struct
 {
@@ -245,13 +267,12 @@ typedef struct
 } t_symstruct;
 
 static t_symstruct lookuptable[] = {
-    {"connect", CONNECT},
+    {"node_connect", CONNECT},
     {"list_connected", LIST_CONNECTED},
-    {"enable_provision", ENABLE_PROVISION},
-    {"disable_provision", DISABLE_PROVISION},
     {"temp", TEMP},
     {"onoff", ONOFF},
-    {"provision", PROVISION}};
+    {"inited", INITED},
+    {"provision_set", PROVISION}};
 
 #define NKEYS (sizeof(lookuptable) / sizeof(t_symstruct))
 
@@ -280,19 +301,25 @@ void Websocket_msg_handle(uint8_t *payload)
         // TODO: error handling
     }
 
-    cJSON *res = cJSON_GetObjectItem(root, "connect");
-    if (res)
-    { // this lib return 0 for get number if not found =w= so convert from string here
-        int device = atoi(res->valuestring);
-        Connect_unprovisioned_device(device);
-        return;
-    }
-
-    res = cJSON_GetObjectItem(root, "function");
+    cJSON *res = cJSON_GetObjectItem(root, "function");
     if (res != NULL)
     {
         switch (keyfromstring(res->valuestring))
         {
+        case CONNECT:
+        {
+            cJSON *value = cJSON_GetObjectItem(root, "data");
+            if (value != NULL)
+            {
+                uint8_t dev = 0;
+                cJSON_SetNumberValue(value, dev);
+                Connect_unprovisioned_device(dev);
+            }
+            break;
+        }
+        case INITED:
+            get_status(ESP_OK);
+            break;
         case LIST_CONNECTED:
             Get_connected_nodes();
             break;
@@ -300,21 +327,33 @@ void Websocket_msg_handle(uint8_t *payload)
             sensor_model(0);
             break;
         case ONOFF:
-            Onoff_model(0);
+        {
+            cJSON *val = cJSON_GetObjectItem(root, "data");
+            if (val != NULL)
+            {
+                cJSON *uuid = cJSON_GetObjectItem(val, "uuid");
+                cJSON *status = cJSON_GetObjectItem(val, "status");
+                if (uuid != NULL && status != NULL)
+                    Onoff_model(uuid->valuestring, status->valueint);
+            }
+
             break;
+        }
         case PROVISION:
         {
             cJSON *value = cJSON_GetObjectItem(root, "data");
             if (value != NULL)
             {
+                esp_err_t err = ESP_OK;
                 if (value->valueint)
                 {
-                    Start_provisioner();
+                    err = Start_provisioner();
                 }
                 else
                 {
-                    Stop_provisioner();
+                    err = Stop_provisioner();
                 }
+                get_status(err);
             }
 
             break;
@@ -323,6 +362,7 @@ void Websocket_msg_handle(uint8_t *payload)
             break;
         }
     }
+    cJSON_Delete(root);
 }
 
 void send_unprov_device_mac_to_ui(uint8_t *data)
@@ -331,20 +371,24 @@ void send_unprov_device_mac_to_ui(uint8_t *data)
 
     cJSON *dev = cJSON_CreateObject();
 
+    cJSON_AddStringToObject(root, "function", "provision_update");
     cJSON_AddStringToObject(dev, "mac", bt_hex(data, BD_ADDR_LEN));
     cJSON *device = cJSON_CreateArray();
     cJSON_AddItemToArray(device, dev);
-    cJSON_AddItemToObject(root, "device", device);
+    cJSON_AddBoolToObject(dev, "add", true);
+    cJSON_AddItemToObject(root, "data", device);
 
     WS_send_JSON(root);
 }
 
-void send_sensor_data_to_ui(uint8_t temp, uint8_t humid)
+void send_sensor_data_to_ui(const uint8_t *name, const uint8_t temp, const uint8_t humid)
 {
     cJSON *root = cJSON_CreateObject();
-    cJSON_AddNumberToObject(root, "model", (float)ESP_BLE_MESH_MODEL_ID_SENSOR_SRV);
+    cJSON_AddStringToObject(root, "function", "sensor_update");
 
     cJSON *data = cJSON_CreateObject();
+    cJSON_AddStringToObject(data, "node", (const char *)name);
+
     if (temp == 0xFF || humid == 0xFF)
     { //if it is invalid temp and humid
         cJSON_AddNumberToObject(data, "error", 1.0);
@@ -386,58 +430,46 @@ void Get_connected_nodes()
 
 // if index = -1 the function will broadcast
 //TODO: =w=  broadcast
-void Onoff_model(int index)
+void Onoff_model(char *uuid, bool status)
 {
-    if (index == -1)
-    {
-    }
-    else
-    {
 
-        //setup basic information
-        //TODO: maybe send json from here if error ?
-        /*
+    //setup basic information
+    //TODO: maybe send json from here if error ?
+    /*
         cJSON *root = cJSON_CreateObject();
         cJSON_AddStringToObject(root, "function", "onoff");
 
         cJSON *data = cJSON_CreateObject();
         */
 
-        //here it will take from index of all ONOFF server model
-        esp_ble_mesh_node_info_t *node = NULL;
-        int type_counter = 0;
-        for (size_t i = 0; i < CONFIG_BLE_MESH_MAX_PROV_NODES || nodes[i].unicast != ESP_BLE_MESH_ADDR_UNASSIGNED; i++)
+    //here it will take from index of all ONOFF server model
+    esp_ble_mesh_node_info_t *node = NULL;
+    for (size_t i = 0; i < CONFIG_BLE_MESH_MAX_PROV_NODES || nodes[i].unicast != ESP_BLE_MESH_ADDR_UNASSIGNED; i++)
+    {
+        if (nodes[i].model_id == BLE_MESH_MODEL_ID_GEN_ONOFF_SRV && strcmp(uuid, bt_hex(nodes[i].uuid, 16)) == 0)
+
         {
-            if (nodes[i].model_id == BLE_MESH_MODEL_ID_GEN_ONOFF_SRV)
-            {
-                if (type_counter != index)
-                {
-                    type_counter++;
-                    continue;
-                }
-                else
-                {
-                    node = &nodes[i];
-                    break;
-                }
-            }
+            node = &nodes[i];
+            break;
         }
-
-        if (!node)
-        {
-            ESP_LOGE(TAG, "%s: node not found!", __func__);
-            //cJSON_AddNumberToObject(data, "error", 1);
-            return;
-        }
-        ESP_LOGI(TAG, "Current Status: %d", node->onoff);
-
-        esp_ble_mesh_client_common_param_t common = {0};
-
-        esp_ble_mesh_generic_client_get_state_t get_state = {0};
-        example_ble_mesh_set_msg_common(&common, node, onoff_client.model, ESP_BLE_MESH_MODEL_OP_GEN_ONOFF_GET);
-        esp_err_t error = esp_ble_mesh_generic_client_get_state(&common, &get_state);
-        ESP_LOGW(TAG, "esp_ble_mesh_generic_client_get_state: %d", error);
     }
+
+    if (!node)
+    {
+        ESP_LOGE(TAG, "%s: node not found!", __func__);
+        //cJSON_AddNumberToObject(data, "error", 1);
+        return;
+    }
+    ESP_LOGI(TAG, "Current Status: %d", node->onoff);
+
+    esp_ble_mesh_client_common_param_t common = {0};
+
+    esp_ble_mesh_generic_client_get_state_t get_state = {0};
+    node->onoff = status;
+    ESP_LOGI(TAG, "Status to be update: %d", node->onoff);
+    example_ble_mesh_set_msg_common(&common, node, onoff_client.model, ESP_BLE_MESH_MODEL_OP_GEN_ONOFF_GET);
+    esp_err_t error = esp_ble_mesh_generic_client_get_state(&common, &get_state);
+    ESP_LOGW(TAG, "esp_ble_mesh_generic_client_get_state: %d", error);
 }
 
 void sensor_model(int index)
@@ -480,6 +512,20 @@ void sensor_model(int index)
         esp_err_t error = esp_ble_mesh_sensor_client_get_state(&common, &get_state);
         ESP_LOGW(TAG, "esp_ble_mesh_sensor_client_get_state: %d", error);
     }
+}
+
+void get_status(esp_err_t err)
+{
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "function", "status_update");
+    cJSON *data = cJSON_CreateObject();
+
+    cJSON_AddBoolToObject(data, "provision_status", provisioning);
+    cJSON_AddNumberToObject(data, "error", err);
+
+    cJSON_AddItemToObject(root, "data", data);
+
+    WS_send_JSON(root);
 }
 
 /**
