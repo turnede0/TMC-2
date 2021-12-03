@@ -29,6 +29,8 @@
 #define MODEL_ONOFF_STR "ONOFF Model"
 #define MODEL_UNKNOWN_STR "Unknown Model"
 
+#define PROVISION_QUEUE_SIZE 3 //TODO: limit the queue size ?
+
 esp_ble_mesh_node_info_t nodes[CONFIG_BLE_MESH_MAX_PROV_NODES] = {
     [0 ...(CONFIG_BLE_MESH_MAX_PROV_NODES - 1)] = {
         .unicast = ESP_BLE_MESH_ADDR_UNASSIGNED,
@@ -44,20 +46,13 @@ static bool provisioning = false;
 
 static bool provisioned = false;
 
-node_detail *blank_node_detail()
+typedef struct QUEUE_UNPROV_DEV_STRUCT
 {
-    node_detail *blank = malloc(sizeof(node_detail));
-    blank->next = NULL;
-    ESP_LOGI(TAG, "1 device found...");
+    uint8_t *mac;
+    struct QUEUE_UNPROV_DEV_STRUCT *next;
+} queue_unprov_dev;
 
-    /*
-        ESP_LOGI(TAG, "address: %s, address type: %d, adv type: %d", discovered->mac, addr_type, adv_type);
-        ESP_LOGI(TAG, "device uuid: %s", bt_hex(dev_uuid, 16));
-        ESP_LOGI(TAG, "oob info: %d, bearer: %s", oob_info, (bearer & ESP_BLE_MESH_PROV_ADV) ? "PB-ADV" : "PB-GATT");
-        */
-
-    return blank;
-}
+static queue_unprov_dev *queue_unprov = NULL;
 
 const char *retrive_model_str(int model_id)
 {
@@ -72,112 +67,101 @@ const char *retrive_model_str(int model_id)
     }
 }
 
+uint8_t *StrtoHex(char *string)
+{
+    uint8_t *mac = malloc(6 * sizeof(uint8_t));
+    uint8_t *ptr = mac;
+    uint8_t tmp;
+    for (char *i = string; i != string + 12; i += 2) // TODO: add int for any length string
+    {
+        if (i != string - 2)
+        {
+            tmp = *(i + 2);
+            *(i + 2) = 0;
+        }
+
+        *ptr = strtol(i, NULL, 16);
+
+        if (i != string - 2)
+            *(i + 2) = tmp;
+
+        ptr++;
+    }
+
+    return mac;
+}
+
 // aka: unpair device found
 void Unprovisioned_advertise_pkt_receive(uint8_t dev_uuid[16], uint8_t addr[BD_ADDR_LEN],
                                          esp_ble_mesh_addr_type_t addr_type, uint16_t oob_info,
                                          uint8_t adv_type, esp_ble_mesh_prov_bearer_t bearer)
 { // TODO: update websocket from the function
     ESP_LOGI(TAG, "Device: %s", bt_hex(dev_uuid, 16));
-    if (discovered == NULL)
+    queue_unprov_dev *ptr = queue_unprov;
+    queue_unprov_dev *prev = NULL;
+    while (ptr)
     {
-        discovered = blank_node_detail();
-        memcpy(discovered->dev.addr, addr, BD_ADDR_LEN);
-        discovered->dev.addr_type = (uint8_t)addr_type;
-        memcpy(discovered->dev.uuid, dev_uuid, 16);
-        discovered->dev.oob_info = oob_info;
-        discovered->dev.bearer = (uint8_t)bearer;
+        if (memcmp(ptr->mac, addr, BD_ADDR_LEN) == 0)
+        { //if queue unprov dev found
+            esp_ble_mesh_unprov_dev_add_t dev;
+            memcpy(dev.addr, addr, BD_ADDR_LEN);
+            memcpy(dev.uuid, dev_uuid, 16);
+            dev.addr_type = (uint8_t)addr_type;
+            dev.oob_info = oob_info;
+            dev.bearer = (uint8_t)bearer;
 
-        // add device to UI
-        send_unprov_device_mac_to_ui(addr);
+            int err = esp_ble_mesh_provisioner_add_unprov_dev(&dev,
+                                                              ADD_DEV_RM_AFTER_PROV_FLAG | ADD_DEV_START_PROV_NOW_FLAG | ADD_DEV_FLUSHABLE_DEV_FLAG);
 
-        // TODO: connect to device
-
-        // Connect_unprovisioned_device(0);
-    }
-    else
-    {
-        node_detail *list_ptr = discovered;
-        bool found = false;
-        node_detail *last_ele = NULL;
-        while (list_ptr != NULL)
-        {
-            if (memcmp(dev_uuid, list_ptr->dev.uuid, 16) >= 0)
+            // if failed
+            if (err)
             {
-                found = true;
-                break;
+                ESP_LOGE(TAG, "%s: Add unprovisioned device into queue failed", __func__);
+                return -1;
             }
-            last_ele = list_ptr;
-            list_ptr = list_ptr->next;
+
+            if (ptr->next && prev != NULL)
+                prev->next = ptr->next;
+            else if (ptr->next && ptr == queue_unprov)
+                queue_unprov = ptr->next;
+            else if (ptr == queue_unprov)
+                queue_unprov = NULL;
+            else
+                prev->next = NULL;
+
+            free(ptr);
+
+            return;
         }
-        if (!found)
-        {
-            last_ele->next = blank_node_detail();
-
-            node_detail *current = last_ele->next;
-
-            memcpy(current->dev.addr, addr, BD_ADDR_LEN);
-            current->dev.addr_type = (uint8_t)addr_type;
-            memcpy(current->dev.uuid, dev_uuid, 16);
-            current->dev.oob_info = oob_info;
-            current->dev.bearer = (uint8_t)bearer;
-
-            // add device to UI
-            send_unprov_device_mac_to_ui(addr);
-        }
+        prev = ptr;
+        ptr = ptr->next;
     }
 
     return;
 }
 
-int Connect_unprovisioned_device(int index)
+int Connect_unprovisioned_device(char *mac)
 {
-    node_detail *ptr = discovered;
+    ESP_LOGI(TAG, "ready to connect: %s", mac);
+    uint8_t *hex = StrtoHex(mac);
 
-    node_detail *prev = NULL;
-    while (ptr != NULL)
+    ESP_LOGI(TAG, "added to queue: %s", bt_hex(hex, 6));
+
+    queue_unprov_dev *dev = malloc(sizeof(queue_unprov_dev));
+    dev->mac = hex;
+    dev->next = NULL;
+
+    queue_unprov_dev *ptr = queue_unprov;
+    if (queue_unprov != NULL)
     {
-
-        index--;
-
-        if (ptr == NULL && index != -1)
-        {
-            ESP_LOGE(TAG, "no device in the list!");
-            return -1;
-            // if exceed list
-        }
-        if (index < 0)
-            break;
-        prev = ptr;
-
-        ptr = ptr->next;
+        while (queue_unprov->next != NULL)
+            ptr = queue_unprov->next;
+        ptr->next = dev;
     }
-    int err = esp_ble_mesh_provisioner_add_unprov_dev(&(ptr->dev),
-                                                      ADD_DEV_RM_AFTER_PROV_FLAG | ADD_DEV_START_PROV_NOW_FLAG | ADD_DEV_FLUSHABLE_DEV_FLAG);
-
-    // if failed
-    if (err)
+    else
     {
-        ESP_LOGE(TAG, "%s: Add unprovisioned device into queue failed", __func__);
-        return -1;
+        queue_unprov = dev;
     }
-
-    if (ptr->next != NULL)
-    {
-        if (prev != NULL)
-        {
-            prev->next = ptr->next;
-        }
-        else
-        {
-            discovered = ptr->next;
-        }
-    }
-
-    if (ptr == discovered)
-    {
-        discovered = NULL;
-    }
-    free(ptr);
 
     return 0;
 }
@@ -200,28 +184,6 @@ esp_err_t Start_provisioner(void)
     }
 
     provisioning = true;
-
-    return err;
-}
-
-// aka: stop scanning
-esp_err_t Stop_provisioner(void)
-{
-    esp_err_t err = ESP_OK;
-
-    /**
-     * TODO: disable can successfully disable provision but will disconnect all device
-     * Maybe just free all storage and dont transmit data to ui till re-enable provisione in ui =w=
-     */
-    //
-    err = esp_ble_mesh_provisioner_prov_disable(ESP_BLE_MESH_PROV_ADV | ESP_BLE_MESH_PROV_GATT);
-    if (err != ESP_OK)
-    {
-        ESP_LOGE(TAG, "Failed to disable mesh provisioner (err %d)", err);
-        return err;
-    }
-
-    provisioning = false;
 
     return err;
 }
@@ -256,7 +218,6 @@ void Provision_complete(const char *name, const char *uuid, uint16_t model_id)
 #define ENABLE_PROVISION 3
 #define DISABLE_PROVISION 4
 #define TEMP 5
-#define PROVISION 6
 #define ONOFF 7
 #define INITED 8
 
@@ -271,8 +232,7 @@ static t_symstruct lookuptable[] = {
     {"list_connected", LIST_CONNECTED},
     {"temp", TEMP},
     {"onoff", ONOFF},
-    {"inited", INITED},
-    {"provision_set", PROVISION}};
+    {"inited", INITED}};
 
 #define NKEYS (sizeof(lookuptable) / sizeof(t_symstruct))
 
@@ -311,9 +271,7 @@ void Websocket_msg_handle(uint8_t *payload)
             cJSON *value = cJSON_GetObjectItem(root, "data");
             if (value != NULL)
             {
-                uint8_t dev = 0;
-                cJSON_SetNumberValue(value, dev);
-                Connect_unprovisioned_device(dev);
+                Connect_unprovisioned_device(value->valuestring);
             }
             break;
         }
@@ -335,25 +293,6 @@ void Websocket_msg_handle(uint8_t *payload)
                 cJSON *status = cJSON_GetObjectItem(val, "status");
                 if (uuid != NULL && status != NULL)
                     Onoff_model(uuid->valuestring, status->valueint);
-            }
-
-            break;
-        }
-        case PROVISION:
-        {
-            cJSON *value = cJSON_GetObjectItem(root, "data");
-            if (value != NULL)
-            {
-                esp_err_t err = ESP_OK;
-                if (value->valueint)
-                {
-                    err = Start_provisioner();
-                }
-                else
-                {
-                    err = Stop_provisioner();
-                }
-                get_status(err);
             }
 
             break;

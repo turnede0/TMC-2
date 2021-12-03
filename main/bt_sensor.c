@@ -16,6 +16,10 @@ void example_ble_mesh_sensor_cli_cb(esp_ble_mesh_sensor_client_cb_event_t event,
     {
         ESP_LOGW(TAG, "Timeout Received");
         example_ble_mesh_sensor_timeout(opcode);
+
+        esp_ble_mesh_node_t *node = esp_ble_mesh_provisioner_get_node_with_addr(param->params->ctx.addr);
+        send_sensor_data_to_ui(&(node->name), 255, 255);
+
         break;
     }
     case ESP_BLE_MESH_SENSOR_CLIENT_GET_STATE_EVT:

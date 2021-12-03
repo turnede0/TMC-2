@@ -30,11 +30,7 @@ typedef struct
 
 extern esp_ble_mesh_node_info_t nodes[CONFIG_BLE_MESH_MAX_PROV_NODES];
 
-void Unprovisioned_advertise_pkt_receive(uint8_t dev_uuid[16], uint8_t addr[BD_ADDR_LEN],
-                                         esp_ble_mesh_addr_type_t addr_type, uint16_t oob_info,
-                                         uint8_t adv_type, esp_ble_mesh_prov_bearer_t bearer);
-
-int Connect_unprovisioned_device(int index);
+int Connect_unprovisioned_device(char *mac);
 
 void Provision_complete(const char *name, const char *uuid, uint16_t model_id);
 
@@ -57,5 +53,9 @@ void Onoff_model(char *uuid, bool status);
 void sensor_model(int index);
 
 void get_status();
+
+void Unprovisioned_advertise_pkt_receive(uint8_t dev_uuid[16], uint8_t addr[BD_ADDR_LEN],
+                                         esp_ble_mesh_addr_type_t addr_type, uint16_t oob_info,
+                                         uint8_t adv_type, esp_ble_mesh_prov_bearer_t bearer);
 
 #endif // MESH_HANDLER_H
