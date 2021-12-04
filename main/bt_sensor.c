@@ -22,6 +22,7 @@ void example_ble_mesh_sensor_cli_cb(esp_ble_mesh_sensor_client_cb_event_t event,
 
         break;
     }
+    case ESP_BLE_MESH_SENSOR_CLIENT_PUBLISH_EVT:
     case ESP_BLE_MESH_SENSOR_CLIENT_GET_STATE_EVT:
     {
         //padding will cause +1 padding simple fix by direct assign
