@@ -48,7 +48,7 @@ void send_sensor_data_to_ui(const uint8_t *name, const uint8_t temp, const uint8
 
 void Get_connected_nodes();
 
-void Onoff_model(char *uuid, bool status);
+void Onoff_model(char *uuid);
 
 void sensor_model(int index);
 

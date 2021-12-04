@@ -35,7 +35,7 @@ static struct esp_ble_mesh_key
 
 static esp_ble_mesh_client_t config_client;
 esp_ble_mesh_client_t sensor_client;
-esp_ble_mesh_client_t onoff_client;
+esp_ble_mesh_gen_onoff_srv_t onoff_srv;
 
 static esp_ble_mesh_cfg_srv_t config_server = {
     .relay = ESP_BLE_MESH_RELAY_DISABLED,
@@ -59,7 +59,7 @@ static esp_ble_mesh_cfg_srv_t config_server = {
 static esp_ble_mesh_model_t root_models[] = {
     ESP_BLE_MESH_MODEL_CFG_SRV(&config_server),
     ESP_BLE_MESH_MODEL_CFG_CLI(&config_client),
-    ESP_BLE_MESH_MODEL_GEN_ONOFF_CLI(NULL, &onoff_client),
+    ESP_BLE_MESH_MODEL_GEN_ONOFF_SRV(NULL, &onoff_client),
     ESP_BLE_MESH_MODEL_SENSOR_CLI(NULL, &sensor_client),
 };
 
@@ -89,6 +89,8 @@ static esp_ble_mesh_prov_t provision = {
 
 //for storing model id
 static uint16_t model_ids[5];
+
+static bool prov_close = false;
 
 static esp_err_t example_ble_mesh_store_node_info(const uint8_t uuid[16], uint16_t unicast,
                                                   uint8_t elem_num, uint8_t onoff_state, esp_ble_mesh_msg_ctx_t *ctx)
@@ -269,6 +271,8 @@ static void example_ble_mesh_provisioning_cb(esp_ble_mesh_prov_cb_event_t event,
         break;
     case ESP_BLE_MESH_PROVISIONER_PROV_LINK_CLOSE_EVT:
         prov_link_close(param->provisioner_prov_link_close.bearer, param->provisioner_prov_link_close.reason);
+        prov_close = true;
+
         break;
     case ESP_BLE_MESH_PROVISIONER_PROV_COMPLETE_EVT:
         prov_complete(param->provisioner_prov_complete.node_idx, param->provisioner_prov_complete.device_uuid,
@@ -492,7 +496,8 @@ static void example_ble_mesh_config_client_cb(esp_ble_mesh_cfg_client_cb_event_t
         {
         case ESP_BLE_MESH_MODEL_OP_COMPOSITION_DATA_GET:
         {
-            esp_ble_mesh_cfg_client_get_state_t get_state = {0};
+            espmodel
+                esp_ble_mesh_cfg_client_get_state_t get_state = {0};
             example_ble_mesh_set_msg_common(&common, node, config_client.model, ESP_BLE_MESH_MODEL_OP_COMPOSITION_DATA_GET);
             get_state.comp_data_get.page = COMP_DATA_PAGE_0;
             err = esp_ble_mesh_config_client_get_state(&common, &get_state);
@@ -619,6 +624,12 @@ static void example_ble_mesh_generic_client_cb(esp_ble_mesh_generic_client_cb_ev
 
             node->onoff = param->status_cb.onoff_status.present_onoff;
             ESP_LOGI(TAG, "ESP_BLE_MESH_MODEL_OP_GEN_ONOFF_SET onoff: 0x%02x", node->onoff);
+
+            esp_ble_mesh_client_common_param_t common = {0};
+            esp_ble_mesh_generic_client_get_state_t get_state = {0};
+            example_ble_mesh_set_msg_common(&common, node, onoff_client.model, ESP_BLE_MESH_MODEL_OP_GEN_ONOFF_GET);
+            esp_err_t error = esp_ble_mesh_generic_client_get_state(&common, &get_state);
+            ESP_LOGW(TAG, "esp_ble_mesh_generic_client_get_state: %d", error);
             break;
         default:
             break;
@@ -647,6 +658,16 @@ static void example_ble_mesh_generic_client_cb(esp_ble_mesh_generic_client_cb_ev
             cJSON_AddNumberToObject(data, "result", node->onoff);
             cJSON_AddItemToObject(root, "data", data);
             WS_send_JSON(root);
+
+            if (prov_close)
+            {
+
+                esp_ble_mesh_client_common_param_t common = {0};
+                esp_ble_mesh_generic_client_get_state_t get_state = {0};
+                example_ble_mesh_set_msg_common(&common, node, onoff_client.model, ESP_BLE_MESH_MODEL_OP_GEN_ONOFF_GET);
+                esp_err_t error = esp_ble_mesh_generic_client_get_state(&common, &get_state);
+                ESP_LOGW(TAG, "esp_ble_mesh_generic_client_get_state: %d", error);
+            }
 
             return;
         }

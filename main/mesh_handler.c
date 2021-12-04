@@ -117,7 +117,7 @@ void Unprovisioned_advertise_pkt_receive(uint8_t dev_uuid[16], uint8_t addr[BD_A
             if (err)
             {
                 ESP_LOGE(TAG, "%s: Add unprovisioned device into queue failed", __func__);
-                return -1;
+                return;
             }
 
             if (ptr->next && prev != NULL)
@@ -292,7 +292,7 @@ void Websocket_msg_handle(uint8_t *payload)
                 cJSON *uuid = cJSON_GetObjectItem(val, "uuid");
                 cJSON *status = cJSON_GetObjectItem(val, "status");
                 if (uuid != NULL && status != NULL)
-                    Onoff_model(uuid->valuestring, status->valueint);
+                    Onoff_model(uuid->valuestring);
             }
 
             break;
@@ -369,7 +369,7 @@ void Get_connected_nodes()
 
 // if index = -1 the function will broadcast
 //TODO: =w=  broadcast
-void Onoff_model(char *uuid, bool status)
+void Onoff_model(char *uuid)
 {
 
     //setup basic information
@@ -404,7 +404,6 @@ void Onoff_model(char *uuid, bool status)
     esp_ble_mesh_client_common_param_t common = {0};
 
     esp_ble_mesh_generic_client_get_state_t get_state = {0};
-    node->onoff = status;
     ESP_LOGI(TAG, "Status to be update: %d", node->onoff);
     example_ble_mesh_set_msg_common(&common, node, onoff_client.model, ESP_BLE_MESH_MODEL_OP_GEN_ONOFF_GET);
     esp_err_t error = esp_ble_mesh_generic_client_get_state(&common, &get_state);
@@ -416,7 +415,6 @@ void sensor_model(int index)
     if (index == -1)
     {
     }
-    else
     {
 
         esp_ble_mesh_node_info_t *node = NULL;
