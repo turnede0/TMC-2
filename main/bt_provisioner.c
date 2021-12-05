@@ -575,7 +575,7 @@ static void example_ble_mesh_generic_server_cb(esp_ble_mesh_generic_server_cb_ev
             struct bt_mesh_node *node = bt_mesh_provisioner_get_node_with_addr(param->ctx.addr);
 
             cJSON *root = cJSON_CreateObject();
-            cJSON_AddStringToObject(root, "function", "sensor_update");
+            cJSON_AddStringToObject(root, "function", "pir_update");
 
             cJSON *data = cJSON_CreateObject();
             cJSON_AddStringToObject(data, "node", (const char *)node->name);

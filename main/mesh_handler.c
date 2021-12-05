@@ -28,6 +28,7 @@
 #define MODEL_SENSOR_STR "Sensor Model"
 #define MODEL_ONOFF_STR "ONOFF Model"
 #define MODEL_UNKNOWN_STR "Unknown Model"
+#define MODEL_PIR_SENSOR_STR "PIR Sensor"
 
 #define PROVISION_QUEUE_SIZE 3 //TODO: limit the queue size ?
 
@@ -62,6 +63,8 @@ const char *retrive_model_str(int model_id)
         return MODEL_ONOFF_STR;
     case ESP_BLE_MESH_MODEL_ID_SENSOR_SRV:
         return MODEL_SENSOR_STR;
+    case ESP_BLE_MESH_MODEL_ID_GEN_ONOFF_CLI:
+        return MODEL_PIR_SENSOR_STR;
     default:
         return MODEL_UNKNOWN_STR;
     }
